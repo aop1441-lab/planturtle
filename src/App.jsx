@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from './supabaseClient';
+import { Html5QrcodeScanner } from 'html5-qrcode';
 import { 
   Package, Search, Plus, Edit, Trash2, LogOut, User, Shield, 
   CheckCircle, XCircle, AlertCircle, Camera, QrCode, X, Filter,
@@ -675,6 +676,190 @@ const TicketAssignModal = ({ asset, tickets, onAssign, onCancel, loading }) => {
           )}
         </div>
       </div>
+    </div>
+  );
+};
+
+// Scanner View Component with real QR scanning
+const ScannerView = ({ assets }) => {
+  const [scanResult, setScanResult] = useState(null);
+  const [isScanning, setIsScanning] = useState(false);
+  const [manualInput, setManualInput] = useState('');
+  const scannerRef = useRef(null);
+
+  useEffect(() => {
+    return () => {
+      // Cleanup scanner on unmount
+      if (scannerRef.current) {
+        scannerRef.current.clear().catch(console.error);
+      }
+    };
+  }, []);
+
+  const startScanner = () => {
+    setIsScanning(true);
+    setScanResult(null);
+    
+    setTimeout(() => {
+      const scanner = new Html5QrcodeScanner("qr-reader", {
+        fps: 10,
+        qrbox: { width: 250, height: 250 },
+        aspectRatio: 1.0
+      });
+
+      scanner.render(
+        (decodedText) => {
+          // On success
+          scanner.clear();
+          setIsScanning(false);
+          handleScanResult(decodedText);
+        },
+        (error) => {
+          // On error (ignore, keep scanning)
+        }
+      );
+
+      scannerRef.current = scanner;
+    }, 100);
+  };
+
+  const stopScanner = () => {
+    if (scannerRef.current) {
+      scannerRef.current.clear().catch(console.error);
+    }
+    setIsScanning(false);
+  };
+
+  const handleScanResult = (scannedText) => {
+    // Try to find asset by tag or any field containing the scanned text
+    const asset = assets.find(a => 
+      a.tag.toLowerCase() === scannedText.toLowerCase() ||
+      a.tag.toLowerCase().includes(scannedText.toLowerCase()) ||
+      scannedText.toLowerCase().includes(a.tag.toLowerCase())
+    );
+
+    if (asset) {
+      setScanResult({ found: true, asset });
+    } else {
+      setScanResult({ found: false, scannedText });
+    }
+  };
+
+  const handleManualSearch = () => {
+    if (manualInput.trim()) {
+      handleScanResult(manualInput.trim());
+      setManualInput('');
+    }
+  };
+
+  return (
+    <div className="p-4 max-w-lg mx-auto">
+      <div className="text-center mb-6">
+        <QrCode className="w-16 h-16 text-blue-600 mx-auto mb-3" />
+        <h2 className="text-xl font-bold">Audit Scanner</h2>
+        <p className="text-gray-500">Scan QR codes or enter asset tags</p>
+      </div>
+
+      {/* QR Scanner */}
+      <div className="bg-white rounded-xl shadow-sm overflow-hidden mb-4">
+        {!isScanning ? (
+          <div className="p-8 text-center">
+            <Camera className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+            <button
+              onClick={startScanner}
+              className="px-6 py-3 bg-blue-600 text-white rounded-xl font-semibold hover:bg-blue-700 flex items-center gap-2 mx-auto"
+            >
+              <Camera className="w-5 h-5" />
+              Start Camera Scan
+            </button>
+          </div>
+        ) : (
+          <div>
+            <div id="qr-reader" className="w-full"></div>
+            <div className="p-4 text-center">
+              <button
+                onClick={stopScanner}
+                className="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600"
+              >
+                Stop Scanner
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Manual Input */}
+      <div className="bg-white rounded-xl p-4 shadow-sm mb-4">
+        <p className="text-sm text-gray-500 mb-2 text-center">Or enter manually:</p>
+        <div className="flex gap-2">
+          <input
+            type="text"
+            value={manualInput}
+            onChange={(e) => setManualInput(e.target.value)}
+            placeholder="Enter asset tag (e.g., AST-001)"
+            className="flex-1 px-4 py-3 border rounded-lg text-center font-mono"
+            onKeyDown={(e) => e.key === 'Enter' && handleManualSearch()}
+          />
+          <button
+            onClick={handleManualSearch}
+            className="px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+          >
+            Search
+          </button>
+        </div>
+      </div>
+
+      {/* Scan Result */}
+      {scanResult && (
+        <div className={`rounded-xl p-4 shadow-sm ${scanResult.found ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200'}`}>
+          {scanResult.found ? (
+            <div>
+              <div className="flex items-center gap-2 mb-3">
+                <CheckCircle className="w-6 h-6 text-green-600" />
+                <span className="font-bold text-green-800">Asset Found!</span>
+              </div>
+              <div className="bg-white rounded-lg p-4 space-y-2">
+                <div className="flex justify-between">
+                  <span className="text-gray-500">Tag:</span>
+                  <span className="font-mono font-bold text-blue-600">{scanResult.asset.tag}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-500">Description:</span>
+                  <span className="font-medium">{scanResult.asset.description}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-500">Owner:</span>
+                  <span>{scanResult.asset.owner}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-500">Location:</span>
+                  <span>{scanResult.asset.location}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-500">Status:</span>
+                  <span className={`px-2 py-1 rounded-full text-xs text-white ${statusColors[scanResult.asset.tracking_status]}`}>
+                    {scanResult.asset.tracking_status}
+                  </span>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="flex items-center gap-3">
+              <XCircle className="w-6 h-6 text-red-600" />
+              <div>
+                <p className="font-bold text-red-800">Asset Not Found</p>
+                <p className="text-sm text-red-600">Scanned: {scanResult.scannedText}</p>
+              </div>
+            </div>
+          )}
+          <button
+            onClick={() => setScanResult(null)}
+            className="mt-4 w-full px-4 py-2 bg-gray-100 rounded-lg hover:bg-gray-200 text-gray-700"
+          >
+            Scan Another
+          </button>
+        </div>
+      )}
     </div>
   );
 };
@@ -1488,33 +1673,7 @@ export default function App() {
 
       {/* Scanner View */}
       {currentView === 'scanner' && (
-        <div className="p-4 max-w-lg mx-auto">
-          <div className="text-center mb-6">
-            <QrCode className="w-16 h-16 text-blue-600 mx-auto mb-3" />
-            <h2 className="text-xl font-bold">Audit Scanner</h2>
-            <p className="text-gray-500">Scan QR codes or enter asset tags</p>
-          </div>
-
-          <div className="bg-white rounded-xl p-4 shadow-sm">
-            <input
-              type="text"
-              placeholder="Enter asset tag (e.g., AST-001)"
-              className="w-full px-4 py-3 border rounded-lg text-center text-lg font-mono"
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  const asset = assets.find(a => a.tag.toLowerCase() === e.target.value.toLowerCase());
-                  if (asset) {
-                    alert(`Found: ${asset.tag} - ${asset.description}\nStatus: ${asset.tracking_status}`);
-                  } else {
-                    alert('Asset not found');
-                  }
-                  e.target.value = '';
-                }
-              }}
-            />
-            <p className="text-center text-sm text-gray-500 mt-2">Press Enter to search</p>
-          </div>
-        </div>
+        <ScannerView assets={assets} />
       )}
 
       {/* Modals */}
