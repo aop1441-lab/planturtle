@@ -5,10 +5,13 @@ import {
   Package, Search, Plus, Edit, Trash2, LogOut, User, Shield, 
   CheckCircle, XCircle, AlertCircle, Camera, QrCode, X, Filter,
   RefreshCw, Wrench, Ticket, FileText, Calendar, Clock, BookOpen,
-  ClipboardList, Send, Check, ChevronDown
+  ClipboardList, Send, Check, ChevronDown, Eye, Info
 } from 'lucide-react';
 
-const TRACKING_STATUSES = ['decom', 'in repair', 'in use', 'loan', 'reserved'];
+const TRACKING_STATUSES = ['decom', 'free to use', 'in repair', 'in use', 'loan', 'reserved'];
+
+// Owners that don't require HOTO
+const EXEMPT_OWNERS = ['cloud office', 'coc'];
 
 const RECLONE_STEPS = [
   { id: 1, title: 'Backup User Data', description: 'Ensure all user data is backed up before proceeding with reclone.' },
@@ -25,6 +28,7 @@ const RECLONE_STEPS = [
 
 const statusColors = {
   'decom': 'bg-gray-500',
+  'free to use': 'bg-teal-500',
   'in repair': 'bg-orange-500',
   'in use': 'bg-green-500',
   'loan': 'bg-blue-500',
@@ -117,6 +121,21 @@ const AssetForm = ({ asset, onSave, onCancel, nextTag, loading }) => {
     needs_reclone: false,
     available_for_loan: false
   });
+  const [showHotoWarning, setShowHotoWarning] = useState(false);
+
+  // Check if owner requires HOTO
+  const ownerRequiresHoto = (ownerName) => {
+    if (!ownerName) return false;
+    const lowerOwner = ownerName.toLowerCase().trim();
+    return !EXEMPT_OWNERS.some(exempt => lowerOwner.includes(exempt));
+  };
+
+  // Check if switching from exempt owner to non-exempt owner without HOTO
+  const checkHotoRequired = () => {
+    const needsHoto = ownerRequiresHoto(form.owner);
+    const hasHoto = form.hoto_number && form.hoto_number.trim() !== '';
+    return needsHoto && !hasHoto;
+  };
 
   const handleStatusChange = (newStatus) => {
     if (newStatus !== 'in repair') {
@@ -124,6 +143,25 @@ const AssetForm = ({ asset, onSave, onCancel, nextTag, loading }) => {
     } else {
       setForm({ ...form, tracking_status: newStatus });
     }
+  };
+
+  const handleOwnerChange = (newOwner) => {
+    setForm({ ...form, owner: newOwner });
+    // Show warning if switching to non-exempt owner without HOTO
+    if (ownerRequiresHoto(newOwner) && !form.hoto_number) {
+      setShowHotoWarning(true);
+    } else {
+      setShowHotoWarning(false);
+    }
+  };
+
+  const handleSave = () => {
+    // Check HOTO requirement before saving
+    if (checkHotoRequired()) {
+      setShowHotoWarning(true);
+      // Still allow save, just show warning
+    }
+    onSave(form);
   };
 
   return (
@@ -170,20 +208,41 @@ const AssetForm = ({ asset, onSave, onCancel, nextTag, loading }) => {
               <input
                 type="text"
                 value={form.owner}
-                onChange={(e) => setForm({ ...form, owner: e.target.value })}
+                onChange={(e) => handleOwnerChange(e.target.value)}
                 className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
               />
+              <p className="text-xs text-gray-400 mt-1">HOTO not required for: Cloud Office, COC</p>
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">HOTO Number</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                HOTO Number {ownerRequiresHoto(form.owner) && <span className="text-orange-500">*</span>}
+              </label>
               <input
                 type="text"
                 value={form.hoto_number}
-                onChange={(e) => setForm({ ...form, hoto_number: e.target.value })}
-                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
+                onChange={(e) => {
+                  setForm({ ...form, hoto_number: e.target.value });
+                  if (e.target.value) setShowHotoWarning(false);
+                }}
+                className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 ${
+                  showHotoWarning ? 'border-orange-500 bg-orange-50' : ''
+                }`}
               />
             </div>
           </div>
+
+          {/* HOTO Warning */}
+          {showHotoWarning && (
+            <div className="bg-orange-50 border border-orange-300 rounded-lg p-3 flex items-start gap-2">
+              <AlertCircle className="w-5 h-5 text-orange-500 flex-shrink-0 mt-0.5" />
+              <div>
+                <p className="text-sm font-medium text-orange-800">HOTO Number Required</p>
+                <p className="text-xs text-orange-600">
+                  Owner "{form.owner}" is not Cloud Office or COC. Please provide a HOTO number for proper handover tracking.
+                </p>
+              </div>
+            </div>
+          )}
 
           <div className="grid grid-cols-2 gap-4">
             <div>
@@ -271,12 +330,163 @@ const AssetForm = ({ asset, onSave, onCancel, nextTag, loading }) => {
             Cancel
           </button>
           <button 
-            onClick={() => onSave(form)} 
+            onClick={handleSave} 
             disabled={loading}
             className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
           >
             {loading ? 'Saving...' : 'Save Asset'}
           </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// Asset Detail Modal - Bug 1 Fix: Show full asset details
+const AssetDetailModal = ({ asset, onClose, onEdit, ticketAssignment, maintenanceAssignment, loanRequest }) => {
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+      <div className="bg-white rounded-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+        {/* Header */}
+        <div className="p-6 border-b bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-t-2xl">
+          <div className="flex justify-between items-start">
+            <div>
+              <h2 className="text-xl font-bold">{asset.tag}</h2>
+              <p className="text-blue-100 mt-1">{asset.description}</p>
+            </div>
+            <button onClick={onClose} className="p-1 hover:bg-white/20 rounded-lg">
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+          <div className="mt-3">
+            <span className={`px-3 py-1 rounded-full text-sm font-medium ${statusColors[asset.tracking_status]} text-white`}>
+              {asset.tracking_status}
+            </span>
+            {asset.needs_reclone && (
+              <span className="ml-2 px-3 py-1 bg-orange-400 text-white rounded-full text-sm font-medium">
+                Needs Reclone
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* Details */}
+        <div className="p-6 space-y-4">
+          {/* Basic Info */}
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="text-xs text-gray-500 uppercase">Serial Number</label>
+              <p className="font-medium">{asset.serial_number || '-'}</p>
+            </div>
+            <div>
+              <label className="text-xs text-gray-500 uppercase">Owner</label>
+              <p className="font-medium">{asset.owner || '-'}</p>
+            </div>
+            <div>
+              <label className="text-xs text-gray-500 uppercase">HOTO Number</label>
+              <p className="font-medium">{asset.hoto_number || '-'}</p>
+            </div>
+            <div>
+              <label className="text-xs text-gray-500 uppercase">Location</label>
+              <p className="font-medium">{asset.location || '-'}</p>
+            </div>
+            <div>
+              <label className="text-xs text-gray-500 uppercase">Bin</label>
+              <p className="font-medium">{asset.bin || '-'}</p>
+            </div>
+            <div>
+              <label className="text-xs text-gray-500 uppercase">Available for Loan</label>
+              <p className="font-medium">{asset.available_for_loan ? 'Yes' : 'No'}</p>
+            </div>
+          </div>
+
+          {/* Repair Status */}
+          {asset.tracking_status === 'in repair' && asset.repair_status && (
+            <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
+              <div className="flex items-center gap-2 text-orange-800 mb-2">
+                <Wrench className="w-4 h-4" />
+                <span className="font-medium text-sm">Repair Status</span>
+              </div>
+              <p className="text-sm text-orange-700">{asset.repair_status}</p>
+            </div>
+          )}
+
+          {/* Loan Info */}
+          {asset.tracking_status === 'loan' && (
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+              <div className="flex items-center gap-2 text-blue-800 mb-2">
+                <Send className="w-4 h-4" />
+                <span className="font-medium text-sm">Loan Information</span>
+              </div>
+              <div className="text-sm text-blue-700 space-y-1">
+                <p><span className="font-medium">Loaned to:</span> {asset.loaned_to || '-'}</p>
+                <p><span className="font-medium">Return date:</span> {asset.loan_return_date ? new Date(asset.loan_return_date).toLocaleDateString() : '-'}</p>
+              </div>
+            </div>
+          )}
+
+          {/* Ticket Assignment */}
+          {ticketAssignment && (
+            <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
+              <div className="flex items-center gap-2 text-purple-800 mb-2">
+                <Ticket className="w-4 h-4" />
+                <span className="font-medium text-sm">Reclone Ticket</span>
+              </div>
+              <div className="text-sm text-purple-700 space-y-1">
+                <p><span className="font-medium">PO Number:</span> {ticketAssignment.po_number}</p>
+                <p><span className="font-medium">Assigned:</span> {new Date(ticketAssignment.assigned_date).toLocaleDateString()}</p>
+                <p><span className="font-medium">By:</span> {ticketAssignment.assigned_by}</p>
+              </div>
+            </div>
+          )}
+
+          {/* Maintenance Contract */}
+          {maintenanceAssignment && (
+            <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+              <div className="flex items-center gap-2 text-green-800 mb-2">
+                <FileText className="w-4 h-4" />
+                <span className="font-medium text-sm">Maintenance Contract</span>
+              </div>
+              <div className="text-sm text-green-700 space-y-1">
+                <p><span className="font-medium">Contract:</span> {maintenanceAssignment.po_number}</p>
+                <p><span className="font-medium">Assigned:</span> {new Date(maintenanceAssignment.assigned_date).toLocaleDateString()}</p>
+              </div>
+            </div>
+          )}
+
+          {/* Pending Loan Request */}
+          {loanRequest && loanRequest.status === 'pending' && (
+            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+              <div className="flex items-center gap-2 text-yellow-800 mb-2">
+                <Clock className="w-4 h-4" />
+                <span className="font-medium text-sm">Pending Loan Request</span>
+              </div>
+              <div className="text-sm text-yellow-700 space-y-1">
+                <p><span className="font-medium">Requested by:</span> {loanRequest.requested_by}</p>
+                <p><span className="font-medium">Duration:</span> {loanRequest.duration}</p>
+                <p><span className="font-medium">Reason:</span> {loanRequest.reason}</p>
+              </div>
+            </div>
+          )}
+
+          {/* Timestamps */}
+          <div className="border-t pt-4 text-xs text-gray-400">
+            <p>Created: {asset.created_at ? new Date(asset.created_at).toLocaleString() : '-'}</p>
+            <p>Updated: {asset.updated_at ? new Date(asset.updated_at).toLocaleString() : '-'}</p>
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div className="p-4 border-t bg-gray-50 flex gap-3">
+          <button onClick={onClose} className="flex-1 px-4 py-2 border rounded-lg hover:bg-gray-100">
+            Close
+          </button>
+          {onEdit && (
+            <button onClick={onEdit} className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center justify-center gap-2">
+              <Edit className="w-4 h-4" />
+              Edit Asset
+            </button>
+          )}
         </div>
       </div>
     </div>
@@ -889,6 +1099,7 @@ export default function App() {
   // Modals
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingAsset, setEditingAsset] = useState(null);
+  const [showAssetDetailModal, setShowAssetDetailModal] = useState(null);
   const [showRecloneModal, setShowRecloneModal] = useState(null);
   const [showTicketPurchaseModal, setShowTicketPurchaseModal] = useState(false);
   const [showTicketAssignModal, setShowTicketAssignModal] = useState(null);
@@ -1364,6 +1575,14 @@ export default function App() {
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex gap-2">
+                          {/* View Button - Always visible */}
+                          <button 
+                            onClick={() => setShowAssetDetailModal(asset)} 
+                            className="p-1 hover:bg-blue-100 rounded"
+                            title="View Details"
+                          >
+                            <Eye className="w-4 h-4 text-blue-600" />
+                          </button>
                           {asset.tracking_status === 'in repair' && asset.needs_reclone && (
                             <button
                               onClick={() => {
@@ -1381,10 +1600,10 @@ export default function App() {
                           )}
                           {user.role === 'admin' && (
                             <>
-                              <button onClick={() => setEditingAsset(asset)} className="p-1 hover:bg-gray-100 rounded">
+                              <button onClick={() => setEditingAsset(asset)} className="p-1 hover:bg-gray-100 rounded" title="Edit">
                                 <Edit className="w-4 h-4 text-gray-600" />
                               </button>
-                              <button onClick={() => handleDeleteAsset(asset.id)} className="p-1 hover:bg-gray-100 rounded">
+                              <button onClick={() => handleDeleteAsset(asset.id)} className="p-1 hover:bg-gray-100 rounded" title="Delete">
                                 <Trash2 className="w-4 h-4 text-red-600" />
                               </button>
                             </>
@@ -1524,6 +1743,56 @@ export default function App() {
                 </div>
               )}
             </div>
+          </div>
+
+          {/* Ticket Usage History */}
+          <div className="bg-white rounded-xl shadow-sm overflow-hidden mt-6">
+            <div className="px-4 py-3 border-b bg-blue-50">
+              <h3 className="font-semibold text-blue-800 flex items-center gap-2">
+                <Clock className="w-4 h-4" />
+                Ticket Usage History
+              </h3>
+            </div>
+            {ticketAssignments.length > 0 ? (
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead className="bg-gray-50 border-b">
+                    <tr>
+                      <th className="px-4 py-3 text-left text-sm font-semibold text-gray-600">Date</th>
+                      <th className="px-4 py-3 text-left text-sm font-semibold text-gray-600">Asset</th>
+                      <th className="px-4 py-3 text-left text-sm font-semibold text-gray-600">Ticket PO</th>
+                      <th className="px-4 py-3 text-left text-sm font-semibold text-gray-600">Reason</th>
+                      <th className="px-4 py-3 text-left text-sm font-semibold text-gray-600">Assigned By</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y">
+                    {ticketAssignments.map(assignment => (
+                      <tr key={assignment.id} className="hover:bg-gray-50">
+                        <td className="px-4 py-3 text-sm text-gray-600">
+                          {new Date(assignment.assigned_date).toLocaleDateString()}
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className="font-mono font-semibold text-blue-600">{assignment.asset_tag}</span>
+                          <span className="text-sm text-gray-500 ml-2">{assignment.asset_description}</span>
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className="font-mono font-semibold text-purple-600">{assignment.po_number}</span>
+                        </td>
+                        <td className="px-4 py-3 text-sm text-gray-600 max-w-xs truncate">
+                          {assignment.reason || '-'}
+                        </td>
+                        <td className="px-4 py-3 text-sm text-gray-600">{assignment.assigned_by}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div className="p-8 text-center text-gray-500">
+                <Ticket className="w-10 h-10 mx-auto mb-2 opacity-50" />
+                <p>No tickets have been used yet</p>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -1684,6 +1953,20 @@ export default function App() {
           onSave={handleSaveAsset}
           onCancel={() => { setShowAddModal(false); setEditingAsset(null); }}
           loading={actionLoading}
+        />
+      )}
+
+      {showAssetDetailModal && (
+        <AssetDetailModal
+          asset={showAssetDetailModal}
+          onClose={() => setShowAssetDetailModal(null)}
+          onEdit={user.role === 'admin' ? () => {
+            setEditingAsset(showAssetDetailModal);
+            setShowAssetDetailModal(null);
+          } : null}
+          ticketAssignment={getTicketForAsset(showAssetDetailModal.id)}
+          maintenanceAssignment={maintenanceAssignments.find(m => m.asset_id === showAssetDetailModal.id)}
+          loanRequest={loanRequests.find(r => r.asset_id === showAssetDetailModal.id && r.status === 'pending')}
         />
       )}
 
