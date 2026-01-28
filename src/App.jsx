@@ -890,11 +890,194 @@ const TicketAssignModal = ({ asset, tickets, onAssign, onCancel, loading }) => {
   );
 };
 
-// Scanner View Component with real QR scanning
-const ScannerView = ({ assets }) => {
+// Maintenance Contract Purchase Modal
+const MaintenanceContractModal = ({ onSave, onCancel, loading }) => {
+  const [form, setForm] = useState({
+    po_number: '',
+    quantity: 10,
+    purchase_date: new Date().toISOString().split('T')[0],
+    expiry_date: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+    vendor: '',
+    notes: ''
+  });
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+      <div className="bg-white rounded-2xl p-6 w-full max-w-md">
+        <h2 className="text-lg font-bold mb-4">Add Maintenance Contract</h2>
+
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">PO Number *</label>
+            <input
+              type="text"
+              value={form.po_number}
+              onChange={(e) => setForm({ ...form, po_number: e.target.value })}
+              className="w-full px-3 py-2 border rounded-lg"
+              placeholder="MC-2024-XXX"
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Slots/Quantity</label>
+              <input
+                type="number"
+                value={form.quantity}
+                onChange={(e) => setForm({ ...form, quantity: parseInt(e.target.value) })}
+                className="w-full px-3 py-2 border rounded-lg"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Expiry Date</label>
+              <input
+                type="date"
+                value={form.expiry_date}
+                onChange={(e) => setForm({ ...form, expiry_date: e.target.value })}
+                className="w-full px-3 py-2 border rounded-lg"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Vendor</label>
+            <input
+              type="text"
+              value={form.vendor}
+              onChange={(e) => setForm({ ...form, vendor: e.target.value })}
+              className="w-full px-3 py-2 border rounded-lg"
+              placeholder="e.g., Dell ProSupport"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Notes</label>
+            <textarea
+              value={form.notes}
+              onChange={(e) => setForm({ ...form, notes: e.target.value })}
+              className="w-full px-3 py-2 border rounded-lg"
+              rows={2}
+            />
+          </div>
+        </div>
+
+        <div className="flex gap-3 mt-6">
+          <button onClick={onCancel} className="flex-1 px-4 py-2 border rounded-lg hover:bg-gray-50">Cancel</button>
+          <button 
+            onClick={() => onSave(form)}
+            disabled={loading || !form.po_number}
+            className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50"
+          >
+            {loading ? 'Saving...' : 'Add Contract'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// Maintenance Assign Modal
+const MaintenanceAssignModal = ({ contracts, assets, existingAssignments, onAssign, onCancel, loading }) => {
+  const [selectedContract, setSelectedContract] = useState('');
+  const [selectedAsset, setSelectedAsset] = useState('');
+
+  // Get available contracts (not expired, has remaining slots)
+  const availableContracts = contracts.map(c => {
+    const used = existingAssignments.filter(a => a.contract_id === c.id).length;
+    return { ...c, used, remaining: c.quantity - used };
+  }).filter(c => new Date(c.expiry_date) >= new Date() && c.remaining > 0);
+
+  // Get assets not already assigned to any contract
+  const assignedAssetIds = existingAssignments.map(a => a.asset_id);
+  const availableAssets = assets.filter(a => !assignedAssetIds.includes(a.id));
+
+  const selectedContractData = availableContracts.find(c => c.id === parseInt(selectedContract));
+  const selectedAssetData = availableAssets.find(a => a.id === parseInt(selectedAsset));
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+      <div className="bg-white rounded-2xl p-6 w-full max-w-md">
+        <h2 className="text-lg font-bold mb-2">Assign Maintenance Contract</h2>
+        <p className="text-gray-500 text-sm mb-4">Tag an asset to a maintenance contract</p>
+
+        {availableContracts.length === 0 ? (
+          <div className="text-center py-6 text-red-600">
+            <AlertCircle className="w-10 h-10 mx-auto mb-2" />
+            <p>No contracts available. Please add a new contract.</p>
+          </div>
+        ) : availableAssets.length === 0 ? (
+          <div className="text-center py-6 text-yellow-600">
+            <AlertCircle className="w-10 h-10 mx-auto mb-2" />
+            <p>All assets already have contracts assigned.</p>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Select Contract *</label>
+              <select
+                value={selectedContract}
+                onChange={(e) => setSelectedContract(e.target.value)}
+                className="w-full px-3 py-2 border rounded-lg"
+              >
+                <option value="">-- Select Contract --</option>
+                {availableContracts.map(c => (
+                  <option key={c.id} value={c.id}>
+                    {c.po_number} - {c.vendor} ({c.remaining}/{c.quantity} slots, exp: {new Date(c.expiry_date).toLocaleDateString()})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Select Asset *</label>
+              <select
+                value={selectedAsset}
+                onChange={(e) => setSelectedAsset(e.target.value)}
+                className="w-full px-3 py-2 border rounded-lg"
+              >
+                <option value="">-- Select Asset --</option>
+                {availableAssets.map(a => (
+                  <option key={a.id} value={a.id}>
+                    {a.tag} - {a.description}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {selectedContractData && selectedAssetData && (
+              <div className="bg-green-50 border border-green-200 rounded-lg p-3 text-sm">
+                <p className="font-medium text-green-800">Assignment Preview:</p>
+                <p className="text-green-700">
+                  {selectedAssetData.tag} → {selectedContractData.po_number} ({selectedContractData.vendor})
+                </p>
+              </div>
+            )}
+          </div>
+        )}
+
+        <div className="flex gap-3 mt-6">
+          <button onClick={onCancel} className="flex-1 px-4 py-2 border rounded-lg hover:bg-gray-50">Cancel</button>
+          {availableContracts.length > 0 && availableAssets.length > 0 && (
+            <button 
+              onClick={() => onAssign(parseInt(selectedContract), parseInt(selectedAsset), selectedAssetData.tag, selectedAssetData.description)}
+              disabled={loading || !selectedContract || !selectedAsset}
+              className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50"
+            >
+              {loading ? 'Assigning...' : 'Assign Contract'}
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// Scanner View Component with real QR scanning and verification
+const ScannerView = ({ assets, onVerify, user }) => {
   const [scanResult, setScanResult] = useState(null);
   const [isScanning, setIsScanning] = useState(false);
   const [manualInput, setManualInput] = useState('');
+  const [verified, setVerified] = useState(false);
   const scannerRef = useRef(null);
 
   useEffect(() => {
@@ -909,6 +1092,7 @@ const ScannerView = ({ assets }) => {
   const startScanner = () => {
     setIsScanning(true);
     setScanResult(null);
+    setVerified(false);
     
     setTimeout(() => {
       const scanner = new Html5QrcodeScanner("qr-reader", {
@@ -941,6 +1125,7 @@ const ScannerView = ({ assets }) => {
   };
 
   const handleScanResult = (scannedText) => {
+    setVerified(false);
     // Try to find asset by tag or any field containing the scanned text
     const asset = assets.find(a => 
       a.tag.toLowerCase() === scannedText.toLowerCase() ||
@@ -962,12 +1147,19 @@ const ScannerView = ({ assets }) => {
     }
   };
 
+  const handleVerify = async () => {
+    if (scanResult?.found && onVerify) {
+      await onVerify(scanResult.asset.id);
+      setVerified(true);
+    }
+  };
+
   return (
     <div className="p-4 max-w-lg mx-auto">
       <div className="text-center mb-6">
         <QrCode className="w-16 h-16 text-blue-600 mx-auto mb-3" />
         <h2 className="text-xl font-bold">Audit Scanner</h2>
-        <p className="text-gray-500">Scan QR codes or enter asset tags</p>
+        <p className="text-gray-500">Scan to verify asset presence</p>
       </div>
 
       {/* QR Scanner */}
@@ -1024,9 +1216,16 @@ const ScannerView = ({ assets }) => {
         <div className={`rounded-xl p-4 shadow-sm ${scanResult.found ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200'}`}>
           {scanResult.found ? (
             <div>
-              <div className="flex items-center gap-2 mb-3">
-                <CheckCircle className="w-6 h-6 text-green-600" />
-                <span className="font-bold text-green-800">Asset Found!</span>
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  <CheckCircle className="w-6 h-6 text-green-600" />
+                  <span className="font-bold text-green-800">Asset Found!</span>
+                </div>
+                {scanResult.asset.last_verified && (
+                  <span className="text-xs text-green-600 bg-green-100 px-2 py-1 rounded-full">
+                    Previously verified
+                  </span>
+                )}
               </div>
               <div className="bg-white rounded-lg p-4 space-y-2">
                 <div className="flex justify-between">
@@ -1052,6 +1251,23 @@ const ScannerView = ({ assets }) => {
                   </span>
                 </div>
               </div>
+              
+              {/* Verify Button */}
+              {verified ? (
+                <div className="mt-4 p-3 bg-green-100 rounded-lg text-center">
+                  <CheckCircle className="w-6 h-6 text-green-600 mx-auto mb-1" />
+                  <p className="font-semibold text-green-800">Verified!</p>
+                  <p className="text-sm text-green-600">Asset presence confirmed</p>
+                </div>
+              ) : (
+                <button
+                  onClick={handleVerify}
+                  className="mt-4 w-full px-4 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center justify-center gap-2 font-semibold"
+                >
+                  <CheckCircle className="w-5 h-5" />
+                  Verify Asset Presence
+                </button>
+              )}
             </div>
           ) : (
             <div className="flex items-center gap-3">
@@ -1063,7 +1279,7 @@ const ScannerView = ({ assets }) => {
             </div>
           )}
           <button
-            onClick={() => setScanResult(null)}
+            onClick={() => { setScanResult(null); setVerified(false); }}
             className="mt-4 w-full px-4 py-2 bg-gray-100 rounded-lg hover:bg-gray-200 text-gray-700"
           >
             Scan Another
@@ -1105,6 +1321,8 @@ export default function App() {
   const [showTicketAssignModal, setShowTicketAssignModal] = useState(null);
   const [showLoanRequestModal, setShowLoanRequestModal] = useState(null);
   const [showLoanReviewModal, setShowLoanReviewModal] = useState(null);
+  const [showMaintenanceContractModal, setShowMaintenanceContractModal] = useState(false);
+  const [showMaintenanceAssignModal, setShowMaintenanceAssignModal] = useState(null);
 
   // Login handler
   const handleLogin = async (username, password) => {
@@ -1392,6 +1610,66 @@ export default function App() {
     await fetchAllData();
   };
 
+  // Verify asset (mark as checked during audit)
+  const handleVerifyAsset = async (assetId) => {
+    await supabase.from('assets')
+      .update({ 
+        last_verified: new Date().toISOString(),
+        verified_by: user.name
+      })
+      .eq('id', assetId);
+    await fetchAllData();
+  };
+
+  // Start new audit (clear all verifications)
+  const handleStartNewAudit = async () => {
+    if (!confirm('Start a new audit? This will reset all verification status.')) return;
+    setActionLoading(true);
+    await supabase.from('assets')
+      .update({ last_verified: null, verified_by: null })
+      .neq('id', 0); // Update all
+    await fetchAllData();
+    setActionLoading(false);
+  };
+
+  // Assign maintenance contract to asset
+  const handleAssignMaintenanceContract = async (contractId, assetId, assetTag, assetDescription) => {
+    setActionLoading(true);
+    const contract = maintenanceContracts.find(c => c.id === contractId);
+    
+    await supabase.from('maintenance_assignments').insert([{
+      contract_id: contractId,
+      po_number: contract.po_number,
+      asset_id: assetId,
+      asset_tag: assetTag,
+      asset_description: assetDescription,
+      assigned_date: new Date().toISOString().split('T')[0],
+      assigned_by: user.name
+    }]);
+    
+    await fetchAllData();
+    setShowMaintenanceAssignModal(null);
+    setActionLoading(false);
+  };
+
+  // Remove maintenance contract from asset
+  const handleRemoveMaintenanceAssignment = async (assignmentId) => {
+    if (!confirm('Remove maintenance contract from this asset?')) return;
+    await supabase.from('maintenance_assignments').delete().eq('id', assignmentId);
+    await fetchAllData();
+  };
+
+  // Add new maintenance contract
+  const handleAddMaintenanceContract = async (form) => {
+    setActionLoading(true);
+    const { error } = await supabase.from('maintenance_contracts').insert([form]);
+    if (!error) {
+      await fetchAllData();
+      setShowMaintenanceContractModal(false);
+    }
+    setActionLoading(false);
+  };
+
   // Computed values
   const getNextTag = () => {
     const nums = assets.map(a => parseInt(a.tag.split('-')[1]) || 0);
@@ -1408,6 +1686,20 @@ export default function App() {
   const usedTickets = ticketAssignments.length;
   const remainingTickets = totalTickets - usedTickets;
 
+  // Maintenance contract computed values
+  const availableMaintenanceContracts = maintenanceContracts.map(c => {
+    const used = maintenanceAssignments.filter(a => a.contract_id === c.id).length;
+    return { ...c, used, remaining: c.quantity - used };
+  });
+
+  const totalMaintenanceSlots = maintenanceContracts.reduce((sum, c) => sum + c.quantity, 0);
+  const usedMaintenanceSlots = maintenanceAssignments.length;
+
+  // Get maintenance contract for an asset
+  const getMaintenanceForAsset = (assetId) => {
+    return maintenanceAssignments.find(a => a.asset_id === assetId);
+  };
+
   const getPendingLoanRequest = (assetId) => {
     return loanRequests.find(r => r.asset_id === assetId && r.status === 'pending');
   };
@@ -1421,6 +1713,15 @@ export default function App() {
   };
 
   const pendingLoanCount = loanRequests.filter(r => r.status === 'pending').length;
+
+  // Find assets missing HOTO number (owner is not Cloud Office or COC)
+  const assetsMissingHoto = assets.filter(asset => {
+    if (!asset.owner) return false;
+    const lowerOwner = asset.owner.toLowerCase().trim();
+    const isExempt = EXEMPT_OWNERS.some(exempt => lowerOwner.includes(exempt));
+    const hasHoto = asset.hoto_number && asset.hoto_number.trim() !== '';
+    return !isExempt && !hasHoto;
+  });
 
   // Filter assets
   const filteredAssets = assets.filter(asset => {
@@ -1475,6 +1776,7 @@ export default function App() {
             { id: 'dashboard', label: 'Dashboard', icon: Package },
             { id: 'tickets', label: 'Tickets', icon: Ticket },
             { id: 'requests', label: 'Requests', icon: ClipboardList, badge: pendingLoanCount },
+            { id: 'audit', label: 'Audit', icon: CheckCircle, badge: assets.filter(a => !a.last_verified).length },
             { id: 'scanner', label: 'Scanner', icon: QrCode }
           ].map(tab => (
             <button
@@ -1509,6 +1811,56 @@ export default function App() {
               </div>
             ))}
           </div>
+
+          {/* HOTO Missing Alert - Admin Only */}
+          {user.role === 'admin' && assetsMissingHoto.length > 0 && (
+            <div className="bg-orange-50 border border-orange-300 rounded-xl p-4 mb-4">
+              <div className="flex items-start gap-3">
+                <AlertCircle className="w-6 h-6 text-orange-500 flex-shrink-0 mt-0.5" />
+                <div className="flex-1">
+                  <h3 className="font-semibold text-orange-800 flex items-center gap-2">
+                    Assets Missing HOTO Number
+                    <span className="bg-orange-500 text-white text-xs px-2 py-0.5 rounded-full">
+                      {assetsMissingHoto.length}
+                    </span>
+                  </h3>
+                  <p className="text-sm text-orange-600 mb-3">
+                    The following assets have owners (not Cloud Office/COC) but no HOTO number recorded:
+                  </p>
+                  <div className="bg-white rounded-lg border border-orange-200 max-h-48 overflow-y-auto">
+                    <table className="w-full text-sm">
+                      <thead className="bg-orange-100 sticky top-0">
+                        <tr>
+                          <th className="px-3 py-2 text-left text-orange-800">Tag</th>
+                          <th className="px-3 py-2 text-left text-orange-800">Description</th>
+                          <th className="px-3 py-2 text-left text-orange-800">Owner</th>
+                          <th className="px-3 py-2 text-left text-orange-800">Action</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-orange-100">
+                        {assetsMissingHoto.map(asset => (
+                          <tr key={asset.id} className="hover:bg-orange-50">
+                            <td className="px-3 py-2 font-mono font-semibold text-blue-600">{asset.tag}</td>
+                            <td className="px-3 py-2 text-gray-700">{asset.description}</td>
+                            <td className="px-3 py-2 text-gray-700">{asset.owner}</td>
+                            <td className="px-3 py-2">
+                              <button
+                                onClick={() => setEditingAsset(asset)}
+                                className="px-2 py-1 bg-orange-500 text-white rounded text-xs hover:bg-orange-600 flex items-center gap-1"
+                              >
+                                <Edit className="w-3 h-3" />
+                                Add HOTO
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Search & Filter */}
           <div className="bg-white rounded-xl p-4 shadow-sm mb-4">
@@ -1794,6 +2146,150 @@ export default function App() {
               </div>
             )}
           </div>
+
+          {/* Maintenance Contracts Section */}
+          <div className="mt-8 pt-6 border-t-2 border-dashed border-gray-300">
+            <h2 className="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2">
+              <FileText className="w-5 h-5 text-green-600" />
+              Maintenance Contracts
+            </h2>
+
+            {/* Maintenance Stats */}
+            <div className="grid grid-cols-3 gap-4 mb-6">
+              <div className="bg-white rounded-xl p-4 shadow-sm text-center">
+                <p className="text-3xl font-bold text-green-600">{totalMaintenanceSlots}</p>
+                <p className="text-sm text-gray-500">Total Slots</p>
+              </div>
+              <div className="bg-white rounded-xl p-4 shadow-sm text-center">
+                <p className="text-3xl font-bold text-blue-600">{usedMaintenanceSlots}</p>
+                <p className="text-sm text-gray-500">Assigned</p>
+              </div>
+              <div className="bg-white rounded-xl p-4 shadow-sm text-center">
+                <p className="text-3xl font-bold text-gray-600">{totalMaintenanceSlots - usedMaintenanceSlots}</p>
+                <p className="text-sm text-gray-500">Available</p>
+              </div>
+            </div>
+
+            {user.role === 'admin' && (
+              <div className="flex gap-2 mb-4">
+                <button
+                  onClick={() => setShowMaintenanceContractModal(true)}
+                  className="px-4 py-2 bg-green-600 text-white rounded-lg flex items-center gap-2"
+                >
+                  <Plus className="w-4 h-4" /> Add Contract
+                </button>
+                <button
+                  onClick={() => setShowMaintenanceAssignModal(true)}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg flex items-center gap-2"
+                >
+                  <Plus className="w-4 h-4" /> Assign to Asset
+                </button>
+              </div>
+            )}
+
+            {/* Maintenance Contracts List */}
+            <div className="bg-white rounded-xl shadow-sm overflow-hidden mb-6">
+              <div className="px-4 py-3 border-b bg-green-50">
+                <h3 className="font-semibold text-green-800">Contracts</h3>
+              </div>
+              {maintenanceContracts.length > 0 ? (
+                <table className="w-full">
+                  <thead className="bg-gray-50 border-b">
+                    <tr>
+                      <th className="px-4 py-3 text-left text-sm font-semibold text-gray-600">PO Number</th>
+                      <th className="px-4 py-3 text-left text-sm font-semibold text-gray-600">Vendor</th>
+                      <th className="px-4 py-3 text-left text-sm font-semibold text-gray-600">Slots</th>
+                      <th className="px-4 py-3 text-left text-sm font-semibold text-gray-600">Used</th>
+                      <th className="px-4 py-3 text-left text-sm font-semibold text-gray-600">Expiry</th>
+                      <th className="px-4 py-3 text-left text-sm font-semibold text-gray-600">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y">
+                    {availableMaintenanceContracts.map(contract => {
+                      const isExpired = new Date(contract.expiry_date) < new Date();
+                      return (
+                        <tr key={contract.id} className={isExpired ? 'opacity-50' : ''}>
+                          <td className="px-4 py-3 font-mono font-semibold text-green-600">{contract.po_number}</td>
+                          <td className="px-4 py-3">{contract.vendor}</td>
+                          <td className="px-4 py-3">{contract.quantity}</td>
+                          <td className="px-4 py-3">{contract.used}</td>
+                          <td className="px-4 py-3 text-gray-600">{new Date(contract.expiry_date).toLocaleDateString()}</td>
+                          <td className="px-4 py-3">
+                            {isExpired ? (
+                              <span className="px-2 py-1 bg-red-100 text-red-700 text-xs rounded-full">Expired</span>
+                            ) : contract.remaining === 0 ? (
+                              <span className="px-2 py-1 bg-gray-100 text-gray-700 text-xs rounded-full">Full</span>
+                            ) : (
+                              <span className="px-2 py-1 bg-green-100 text-green-700 text-xs rounded-full">Active</span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              ) : (
+                <div className="p-8 text-center text-gray-500">
+                  <FileText className="w-10 h-10 mx-auto mb-2 opacity-50" />
+                  <p>No maintenance contracts</p>
+                </div>
+              )}
+            </div>
+
+            {/* Assets with Maintenance Contracts */}
+            <div className="bg-white rounded-xl shadow-sm overflow-hidden">
+              <div className="px-4 py-3 border-b bg-blue-50">
+                <h3 className="font-semibold text-blue-800">Assets with Maintenance Contracts</h3>
+              </div>
+              {maintenanceAssignments.length > 0 ? (
+                <table className="w-full">
+                  <thead className="bg-gray-50 border-b">
+                    <tr>
+                      <th className="px-4 py-3 text-left text-sm font-semibold text-gray-600">Asset</th>
+                      <th className="px-4 py-3 text-left text-sm font-semibold text-gray-600">Contract</th>
+                      <th className="px-4 py-3 text-left text-sm font-semibold text-gray-600">Assigned Date</th>
+                      <th className="px-4 py-3 text-left text-sm font-semibold text-gray-600">By</th>
+                      {user.role === 'admin' && (
+                        <th className="px-4 py-3 text-left text-sm font-semibold text-gray-600">Action</th>
+                      )}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y">
+                    {maintenanceAssignments.map(assignment => (
+                      <tr key={assignment.id} className="hover:bg-gray-50">
+                        <td className="px-4 py-3">
+                          <span className="font-mono font-semibold text-blue-600">{assignment.asset_tag}</span>
+                          <span className="text-sm text-gray-500 ml-2">{assignment.asset_description}</span>
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className="font-mono font-semibold text-green-600">{assignment.po_number}</span>
+                        </td>
+                        <td className="px-4 py-3 text-sm text-gray-600">
+                          {new Date(assignment.assigned_date).toLocaleDateString()}
+                        </td>
+                        <td className="px-4 py-3 text-sm text-gray-600">{assignment.assigned_by}</td>
+                        {user.role === 'admin' && (
+                          <td className="px-4 py-3">
+                            <button
+                              onClick={() => handleRemoveMaintenanceAssignment(assignment.id)}
+                              className="px-2 py-1 bg-red-100 text-red-600 rounded text-xs hover:bg-red-200"
+                            >
+                              Remove
+                            </button>
+                          </td>
+                        )}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              ) : (
+                <div className="p-8 text-center text-gray-500">
+                  <Package className="w-10 h-10 mx-auto mb-2 opacity-50" />
+                  <p>No assets have maintenance contracts assigned</p>
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       )}
 
@@ -1940,9 +2436,142 @@ export default function App() {
         </div>
       )}
 
+      {/* Audit View */}
+      {currentView === 'audit' && (
+        <div className="p-4">
+          {/* Audit Stats */}
+          <div className="grid grid-cols-3 gap-4 mb-6">
+            <div className="bg-white rounded-xl p-4 shadow-sm text-center">
+              <p className="text-3xl font-bold text-blue-600">{assets.length}</p>
+              <p className="text-sm text-gray-500">Total Assets</p>
+            </div>
+            <div className="bg-white rounded-xl p-4 shadow-sm text-center">
+              <p className="text-3xl font-bold text-green-600">{assets.filter(a => a.last_verified).length}</p>
+              <p className="text-sm text-gray-500">Verified</p>
+            </div>
+            <div className="bg-white rounded-xl p-4 shadow-sm text-center">
+              <p className="text-3xl font-bold text-orange-600">{assets.filter(a => !a.last_verified).length}</p>
+              <p className="text-sm text-gray-500">Pending</p>
+            </div>
+          </div>
+
+          {/* Progress Bar */}
+          <div className="bg-white rounded-xl p-4 shadow-sm mb-6">
+            <div className="flex justify-between items-center mb-2">
+              <span className="font-semibold">Audit Progress</span>
+              <span className="text-sm text-gray-500">
+                {assets.filter(a => a.last_verified).length}/{assets.length} ({Math.round((assets.filter(a => a.last_verified).length / assets.length) * 100) || 0}%)
+              </span>
+            </div>
+            <div className="h-4 bg-gray-200 rounded-full overflow-hidden">
+              <div 
+                className="h-full bg-green-500 transition-all"
+                style={{ width: `${(assets.filter(a => a.last_verified).length / assets.length) * 100 || 0}%` }}
+              />
+            </div>
+            {user.role === 'admin' && (
+              <button
+                onClick={handleStartNewAudit}
+                disabled={actionLoading}
+                className="mt-4 px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 text-sm"
+              >
+                Start New Audit (Reset All)
+              </button>
+            )}
+          </div>
+
+          {/* Pending Verification */}
+          <div className="bg-white rounded-xl shadow-sm overflow-hidden mb-6">
+            <div className="px-4 py-3 border-b bg-orange-50">
+              <h3 className="font-semibold text-orange-800 flex items-center gap-2">
+                <Clock className="w-4 h-4" />
+                Pending Verification ({assets.filter(a => !a.last_verified).length})
+              </h3>
+            </div>
+            <div className="max-h-64 overflow-y-auto">
+              {assets.filter(a => !a.last_verified).length > 0 ? (
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-50 sticky top-0">
+                    <tr>
+                      <th className="px-4 py-2 text-left">Tag</th>
+                      <th className="px-4 py-2 text-left">Description</th>
+                      <th className="px-4 py-2 text-left">Location</th>
+                      <th className="px-4 py-2 text-left">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y">
+                    {assets.filter(a => !a.last_verified).map(asset => (
+                      <tr key={asset.id} className="hover:bg-orange-50">
+                        <td className="px-4 py-2 font-mono font-semibold text-blue-600">{asset.tag}</td>
+                        <td className="px-4 py-2">{asset.description}</td>
+                        <td className="px-4 py-2 text-gray-600">{asset.location}</td>
+                        <td className="px-4 py-2">
+                          <button
+                            onClick={() => handleVerifyAsset(asset.id)}
+                            className="px-2 py-1 bg-green-500 text-white rounded text-xs hover:bg-green-600"
+                          >
+                            Mark Verified
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              ) : (
+                <div className="p-8 text-center text-green-600">
+                  <CheckCircle className="w-10 h-10 mx-auto mb-2" />
+                  <p className="font-semibold">All assets verified!</p>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Verified Assets */}
+          <div className="bg-white rounded-xl shadow-sm overflow-hidden">
+            <div className="px-4 py-3 border-b bg-green-50">
+              <h3 className="font-semibold text-green-800 flex items-center gap-2">
+                <CheckCircle className="w-4 h-4" />
+                Verified Assets ({assets.filter(a => a.last_verified).length})
+              </h3>
+            </div>
+            <div className="max-h-64 overflow-y-auto">
+              {assets.filter(a => a.last_verified).length > 0 ? (
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-50 sticky top-0">
+                    <tr>
+                      <th className="px-4 py-2 text-left">Tag</th>
+                      <th className="px-4 py-2 text-left">Description</th>
+                      <th className="px-4 py-2 text-left">Verified At</th>
+                      <th className="px-4 py-2 text-left">By</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y">
+                    {assets.filter(a => a.last_verified).map(asset => (
+                      <tr key={asset.id} className="hover:bg-green-50">
+                        <td className="px-4 py-2 font-mono font-semibold text-blue-600">{asset.tag}</td>
+                        <td className="px-4 py-2">{asset.description}</td>
+                        <td className="px-4 py-2 text-gray-600">
+                          {new Date(asset.last_verified).toLocaleString()}
+                        </td>
+                        <td className="px-4 py-2 text-gray-600">{asset.verified_by}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              ) : (
+                <div className="p-8 text-center text-gray-500">
+                  <Package className="w-10 h-10 mx-auto mb-2 opacity-50" />
+                  <p>No assets verified yet. Start scanning!</p>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Scanner View */}
       {currentView === 'scanner' && (
-        <ScannerView assets={assets} />
+        <ScannerView assets={assets} onVerify={handleVerifyAsset} user={user} />
       )}
 
       {/* Modals */}
@@ -2015,6 +2644,25 @@ export default function App() {
           onApprove={handleLoanApprove}
           onReject={handleLoanReject}
           onCancel={() => setShowLoanReviewModal(null)}
+          loading={actionLoading}
+        />
+      )}
+
+      {showMaintenanceContractModal && (
+        <MaintenanceContractModal
+          onSave={handleAddMaintenanceContract}
+          onCancel={() => setShowMaintenanceContractModal(false)}
+          loading={actionLoading}
+        />
+      )}
+
+      {showMaintenanceAssignModal && (
+        <MaintenanceAssignModal
+          contracts={maintenanceContracts}
+          assets={assets}
+          existingAssignments={maintenanceAssignments}
+          onAssign={handleAssignMaintenanceContract}
+          onCancel={() => setShowMaintenanceAssignModal(null)}
           loading={actionLoading}
         />
       )}
