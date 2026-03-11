@@ -5,7 +5,7 @@ import {
   Package, Search, Plus, Edit, Trash2, LogOut, User, Shield, 
   CheckCircle, XCircle, AlertCircle, Camera, QrCode, X, Filter,
   RefreshCw, Wrench, Ticket, FileText, Calendar, Clock, BookOpen,
-  ClipboardList, Send, Check, ChevronDown, Eye, Info
+  ClipboardList, Send, Check, ChevronDown, Eye, Info, Download
 } from 'lucide-react';
 
 const TRACKING_STATUSES = ['decom', 'free to use', 'in repair', 'in use', 'loan', 'reserved'];
@@ -1323,6 +1323,10 @@ export default function App() {
   const [showLoanReviewModal, setShowLoanReviewModal] = useState(null);
   const [showMaintenanceContractModal, setShowMaintenanceContractModal] = useState(false);
   const [showMaintenanceAssignModal, setShowMaintenanceAssignModal] = useState(null);
+  
+  // Mass Update
+  const [selectedAssets, setSelectedAssets] = useState([]);
+  const [massUpdateStatus, setMassUpdateStatus] = useState('');
 
   // Login handler
   const handleLogin = async (username, password) => {
@@ -1670,6 +1674,91 @@ export default function App() {
     setActionLoading(false);
   };
 
+  // Mass Update Handler
+  const handleMassUpdate = async () => {
+    if (selectedAssets.length === 0 || !massUpdateStatus) {
+      alert('Please select assets and a status to update');
+      return;
+    }
+    
+    if (!confirm(`Update ${selectedAssets.length} assets to "${massUpdateStatus}"?`)) {
+      return;
+    }
+
+    setActionLoading(true);
+    
+    const { error } = await supabase
+      .from('assets')
+      .update({ tracking_status: massUpdateStatus })
+      .in('id', selectedAssets);
+
+    if (!error) {
+      await fetchAllData();
+      setSelectedAssets([]);
+      setMassUpdateStatus('');
+    } else {
+      alert('Error updating assets');
+    }
+    
+    setActionLoading(false);
+  };
+
+  // Export to CSV
+  const handleExportCSV = () => {
+    // Define headers
+    const headers = [
+      'Tag',
+      'Serial Number',
+      'Description',
+      'Owner',
+      'HOTO Number',
+      'Location',
+      'Bin',
+      'Tracking Status',
+      'Repair Status',
+      'Needs Reclone',
+      'Available for Loan',
+      'Last Verified',
+      'Verified By'
+    ];
+
+    // Map assets to rows
+    const rows = assets.map(asset => [
+      asset.tag || '',
+      asset.serial_number || '',
+      asset.description || '',
+      asset.owner || '',
+      asset.hoto_number || '',
+      asset.location || '',
+      asset.bin || '',
+      asset.tracking_status || '',
+      asset.repair_status || '',
+      asset.needs_reclone ? 'Yes' : 'No',
+      asset.available_for_loan ? 'Yes' : 'No',
+      asset.last_verified ? new Date(asset.last_verified).toLocaleString() : '',
+      asset.verified_by || ''
+    ]);
+
+    // Create CSV content
+    const csvContent = [
+      headers.join(','),
+      ...rows.map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(','))
+    ].join('\n');
+
+    // Create and download file
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    link.setAttribute('href', url);
+    link.setAttribute('download', `assets_export_${new Date().toISOString().split('T')[0]}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+
+
   // Computed values
   const getNextTag = () => {
     const nums = assets.map(a => parseInt(a.tag.split('-')[1]) || 0);
@@ -1732,6 +1821,74 @@ export default function App() {
     const matchesStatus = statusFilter === 'all' || asset.tracking_status === statusFilter;
     return matchesSearch && matchesStatus;
   });
+
+  // Toggle single asset selection
+  const toggleAssetSelection = (assetId) => {
+    setSelectedAssets(prev => 
+      prev.includes(assetId) 
+        ? prev.filter(id => id !== assetId)
+        : [...prev, assetId]
+    );
+  };
+
+  // Select/Deselect all filtered assets
+  const toggleSelectAll = () => {
+    if (selectedAssets.length === filteredAssets.length) {
+      setSelectedAssets([]);
+    } else {
+      setSelectedAssets(filteredAssets.map(a => a.id));
+    }
+  };
+
+  // Export filtered assets only
+  const handleExportFilteredCSV = () => {
+    const headers = [
+      'Tag',
+      'Serial Number',
+      'Description',
+      'Owner',
+      'HOTO Number',
+      'Location',
+      'Bin',
+      'Tracking Status',
+      'Repair Status',
+      'Needs Reclone',
+      'Available for Loan',
+      'Last Verified',
+      'Verified By'
+    ];
+
+    const rows = filteredAssets.map(asset => [
+      asset.tag || '',
+      asset.serial_number || '',
+      asset.description || '',
+      asset.owner || '',
+      asset.hoto_number || '',
+      asset.location || '',
+      asset.bin || '',
+      asset.tracking_status || '',
+      asset.repair_status || '',
+      asset.needs_reclone ? 'Yes' : 'No',
+      asset.available_for_loan ? 'Yes' : 'No',
+      asset.last_verified ? new Date(asset.last_verified).toLocaleString() : '',
+      asset.verified_by || ''
+    ]);
+
+    const csvContent = [
+      headers.join(','),
+      ...rows.map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(','))
+    ].join('\n');
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    link.setAttribute('href', url);
+    link.setAttribute('download', `assets_filtered_${new Date().toISOString().split('T')[0]}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
 
   // Render login if not authenticated
   if (!user) {
@@ -1884,15 +2041,82 @@ export default function App() {
                 {TRACKING_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
               </select>
               {user.role === 'admin' && (
-                <button
-                  onClick={() => setShowAddModal(true)}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-lg flex items-center gap-2"
-                >
-                  <Plus className="w-4 h-4" /> Add
-                </button>
+                <>
+                  <button
+                    onClick={handleExportCSV}
+                    className="px-4 py-2 bg-green-600 text-white rounded-lg flex items-center gap-2 hover:bg-green-700"
+                    title="Export all assets to CSV"
+                  >
+                    <Download className="w-4 h-4" /> Export All
+                  </button>
+                  <button
+                    onClick={handleExportFilteredCSV}
+                    className="px-4 py-2 bg-teal-600 text-white rounded-lg flex items-center gap-2 hover:bg-teal-700"
+                    title="Export filtered assets to CSV"
+                  >
+                    <Download className="w-4 h-4" /> Export Filtered
+                  </button>
+                  <button
+                    onClick={() => setShowAddModal(true)}
+                    className="px-4 py-2 bg-blue-600 text-white rounded-lg flex items-center gap-2"
+                  >
+                    <Plus className="w-4 h-4" /> Add
+                  </button>
+                </>
               )}
             </div>
           </div>
+
+          {/* Mass Update Bar - Admin Only */}
+          {user.role === 'admin' && (
+            <div className="bg-purple-50 border border-purple-200 rounded-xl p-4 mb-4">
+              <div className="flex items-center gap-4 flex-wrap">
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={selectedAssets.length === filteredAssets.length && filteredAssets.length > 0}
+                    onChange={toggleSelectAll}
+                    className="w-5 h-5 rounded text-purple-600"
+                  />
+                  <span className="text-sm font-medium text-purple-800">
+                    {selectedAssets.length > 0 
+                      ? `${selectedAssets.length} selected` 
+                      : 'Select All'}
+                  </span>
+                </div>
+                
+                {selectedAssets.length > 0 && (
+                  <>
+                    <div className="h-6 w-px bg-purple-300"></div>
+                    <select
+                      value={massUpdateStatus}
+                      onChange={(e) => setMassUpdateStatus(e.target.value)}
+                      className="px-3 py-2 border border-purple-300 rounded-lg bg-white text-sm"
+                    >
+                      <option value="">Change status to...</option>
+                      {TRACKING_STATUSES.map(s => (
+                        <option key={s} value={s}>{s}</option>
+                      ))}
+                    </select>
+                    <button
+                      onClick={handleMassUpdate}
+                      disabled={!massUpdateStatus || actionLoading}
+                      className="px-4 py-2 bg-purple-600 text-white rounded-lg text-sm font-medium hover:bg-purple-700 disabled:opacity-50 flex items-center gap-2"
+                    >
+                      <Check className="w-4 h-4" />
+                      {actionLoading ? 'Updating...' : 'Update Selected'}
+                    </button>
+                    <button
+                      onClick={() => setSelectedAssets([])}
+                      className="px-3 py-2 text-purple-600 hover:text-purple-800 text-sm"
+                    >
+                      Clear
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+          )}
 
           {/* Assets Table */}
           <div className="bg-white rounded-xl shadow-sm overflow-hidden">
@@ -1900,6 +2124,16 @@ export default function App() {
               <table className="w-full">
                 <thead className="bg-gray-50 border-b">
                   <tr>
+                    {user.role === 'admin' && (
+                      <th className="px-4 py-3 text-left text-sm font-semibold text-gray-600 w-12">
+                        <input
+                          type="checkbox"
+                          checked={selectedAssets.length === filteredAssets.length && filteredAssets.length > 0}
+                          onChange={toggleSelectAll}
+                          className="w-4 h-4 rounded text-purple-600"
+                        />
+                      </th>
+                    )}
                     <th className="px-4 py-3 text-left text-sm font-semibold text-gray-600">Tag</th>
                     <th className="px-4 py-3 text-left text-sm font-semibold text-gray-600">Description</th>
                     <th className="px-4 py-3 text-left text-sm font-semibold text-gray-600">Owner</th>
@@ -1910,7 +2144,17 @@ export default function App() {
                 </thead>
                 <tbody className="divide-y">
                   {filteredAssets.map(asset => (
-                    <tr key={asset.id} className="hover:bg-gray-50">
+                    <tr key={asset.id} className={`hover:bg-gray-50 ${selectedAssets.includes(asset.id) ? 'bg-purple-50' : ''}`}>
+                      {user.role === 'admin' && (
+                        <td className="px-4 py-3">
+                          <input
+                            type="checkbox"
+                            checked={selectedAssets.includes(asset.id)}
+                            onChange={() => toggleAssetSelection(asset.id)}
+                            className="w-4 h-4 rounded text-purple-600"
+                          />
+                        </td>
+                      )}
                       <td className="px-4 py-3 font-mono font-semibold text-blue-600">{asset.tag}</td>
                       <td className="px-4 py-3">{asset.description}</td>
                       <td className="px-4 py-3 text-gray-600">{asset.owner}</td>
