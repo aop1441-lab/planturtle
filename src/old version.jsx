@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from './supabaseClient';
-import { Html5Qrcode } from 'html5-qrcode';
+import { Html5QrcodeScanner } from 'html5-qrcode';
 import { 
   Package, Search, Plus, Edit, Trash2, LogOut, User, Shield, 
   CheckCircle, XCircle, AlertCircle, Camera, QrCode, X, Filter,
@@ -1078,89 +1078,48 @@ const ScannerView = ({ assets, onVerify, user }) => {
   const [isScanning, setIsScanning] = useState(false);
   const [manualInput, setManualInput] = useState('');
   const [verified, setVerified] = useState(false);
-  const [cameraError, setCameraError] = useState('');
   const scannerRef = useRef(null);
-  const isRunningRef = useRef(false);
 
   useEffect(() => {
     return () => {
-      // Cleanup scanner on unmount — only stop if actually running
-      if (scannerRef.current && isRunningRef.current) {
-        scannerRef.current.stop().then(() => {
-          scannerRef.current.clear();
-          isRunningRef.current = false;
-        }).catch(() => {});
+      // Cleanup scanner on unmount
+      if (scannerRef.current) {
+        scannerRef.current.clear().catch(console.error);
       }
     };
   }, []);
 
-  const startScanner = async () => {
-    setCameraError('');
+  const startScanner = () => {
+    setIsScanning(true);
     setScanResult(null);
     setVerified(false);
-    setIsScanning(true);
+    
+    setTimeout(() => {
+      const scanner = new Html5QrcodeScanner("qr-reader", {
+        fps: 10,
+        qrbox: { width: 250, height: 250 },
+        aspectRatio: 1.0
+      });
 
-    // Wait for the #qr-reader div to mount
-    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-
-    try {
-      // Check if camera is available at all
-      const devices = await Html5Qrcode.getCameras();
-      if (!devices || devices.length === 0) {
-        setCameraError('No camera found on this device.');
-        setIsScanning(false);
-        return;
-      }
-
-      const scanner = new Html5Qrcode("qr-reader");
-      scannerRef.current = scanner;
-
-      await scanner.start(
-        { facingMode: "environment" }, // prefer back camera on mobile
-        { fps: 10, qrbox: { width: 250, height: 250 } },
+      scanner.render(
         (decodedText) => {
-          // On successful scan — stop camera, then show result
-          scanner.stop().then(() => {
-            scanner.clear();
-            isRunningRef.current = false;
-            setIsScanning(false);
-            handleScanResult(decodedText);
-          }).catch(() => {
-            setIsScanning(false);
-            handleScanResult(decodedText);
-          });
+          // On success
+          scanner.clear();
+          setIsScanning(false);
+          handleScanResult(decodedText);
         },
-        () => {
-          // QR not detected yet — ignore, keep scanning
+        (error) => {
+          // On error (ignore, keep scanning)
         }
       );
 
-      isRunningRef.current = true;
-    } catch (err) {
-      console.error('Camera error:', err);
-      const msg = typeof err === 'string' ? err : err?.message || '';
-      if (msg.includes('NotAllowedError') || msg.includes('Permission')) {
-        setCameraError('Camera permission denied. Please allow camera access in your browser settings and reload the page.');
-      } else if (msg.includes('NotFoundError')) {
-        setCameraError('No camera found on this device.');
-      } else if (msg.includes('NotReadableError') || msg.includes('TrackStartError')) {
-        setCameraError('Camera is in use by another app. Close other apps using the camera and try again.');
-      } else {
-        setCameraError(`Could not start camera: ${msg || 'Unknown error'}. Try using manual input below.`);
-      }
-      setIsScanning(false);
-    }
+      scannerRef.current = scanner;
+    }, 100);
   };
 
-  const stopScanner = async () => {
-    if (scannerRef.current && isRunningRef.current) {
-      try {
-        await scannerRef.current.stop();
-        scannerRef.current.clear();
-        isRunningRef.current = false;
-      } catch (e) {
-        console.error('Stop error:', e);
-      }
+  const stopScanner = () => {
+    if (scannerRef.current) {
+      scannerRef.current.clear().catch(console.error);
     }
     setIsScanning(false);
   };
@@ -1218,7 +1177,7 @@ const ScannerView = ({ assets, onVerify, user }) => {
           </div>
         ) : (
           <div>
-            <div id="qr-reader" className="w-full" style={{ minHeight: '300px' }}></div>
+            <div id="qr-reader" className="w-full"></div>
             <div className="p-4 text-center">
               <button
                 onClick={stopScanner}
@@ -1230,23 +1189,6 @@ const ScannerView = ({ assets, onVerify, user }) => {
           </div>
         )}
       </div>
-
-      {/* Camera Error */}
-      {cameraError && (
-        <div className="bg-red-50 border border-red-300 rounded-xl p-4 mb-4 flex items-start gap-3">
-          <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
-          <div>
-            <p className="text-sm font-medium text-red-800">Camera Error</p>
-            <p className="text-sm text-red-600 mt-1">{cameraError}</p>
-            <button
-              onClick={() => { setCameraError(''); startScanner(); }}
-              className="mt-2 text-sm text-red-700 underline hover:text-red-900"
-            >
-              Try Again
-            </button>
-          </div>
-        </div>
-      )}
 
       {/* Manual Input */}
       <div className="bg-white rounded-xl p-4 shadow-sm mb-4">
