@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from './supabaseClient';
-import { Html5QrcodeScanner } from 'html5-qrcode';
+import { Html5Qrcode } from 'html5-qrcode';
 import { 
   Package, Search, Plus, Edit, Trash2, LogOut, User, Shield, 
   CheckCircle, XCircle, AlertCircle, Camera, QrCode, X, Filter,
@@ -1078,65 +1078,121 @@ const ScannerView = ({ assets, onVerify, user }) => {
   const [isScanning, setIsScanning] = useState(false);
   const [manualInput, setManualInput] = useState('');
   const [verified, setVerified] = useState(false);
+  const [cameraError, setCameraError] = useState('');
   const scannerRef = useRef(null);
+  const isRunningRef = useRef(false);
 
   useEffect(() => {
     return () => {
-      // Cleanup scanner on unmount
-      if (scannerRef.current) {
-        scannerRef.current.clear().catch(console.error);
+      // Cleanup scanner on unmount — only stop if actually running
+      if (scannerRef.current && isRunningRef.current) {
+        scannerRef.current.stop().then(() => {
+          scannerRef.current.clear();
+          isRunningRef.current = false;
+        }).catch(() => {});
       }
     };
   }, []);
 
-  const startScanner = () => {
-    setIsScanning(true);
+  const startScanner = async () => {
+    setCameraError('');
     setScanResult(null);
     setVerified(false);
-    
-    setTimeout(() => {
-      const scanner = new Html5QrcodeScanner("qr-reader", {
-        fps: 10,
-        qrbox: { width: 250, height: 250 },
-        aspectRatio: 1.0
-      });
+    setIsScanning(true);
 
-      scanner.render(
+    // Wait for the #qr-reader div to mount
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+
+    try {
+      // Check if camera is available at all
+      const devices = await Html5Qrcode.getCameras();
+      if (!devices || devices.length === 0) {
+        setCameraError('No camera found on this device.');
+        setIsScanning(false);
+        return;
+      }
+
+      const scanner = new Html5Qrcode("qr-reader");
+      scannerRef.current = scanner;
+
+      await scanner.start(
+        { facingMode: "environment" }, // prefer back camera on mobile
+        { fps: 10, qrbox: { width: 250, height: 250 } },
         (decodedText) => {
-          // On success
-          scanner.clear();
-          setIsScanning(false);
-          handleScanResult(decodedText);
+          // On successful scan — stop camera, then show result
+          scanner.stop().then(() => {
+            scanner.clear();
+            isRunningRef.current = false;
+            setIsScanning(false);
+            handleScanResult(decodedText);
+          }).catch(() => {
+            setIsScanning(false);
+            handleScanResult(decodedText);
+          });
         },
-        (error) => {
-          // On error (ignore, keep scanning)
+        () => {
+          // QR not detected yet — ignore, keep scanning
         }
       );
 
-      scannerRef.current = scanner;
-    }, 100);
+      isRunningRef.current = true;
+    } catch (err) {
+      console.error('Camera error:', err);
+      const msg = typeof err === 'string' ? err : err?.message || '';
+      if (msg.includes('NotAllowedError') || msg.includes('Permission')) {
+        setCameraError('Camera permission denied. Please allow camera access in your browser settings and reload the page.');
+      } else if (msg.includes('NotFoundError')) {
+        setCameraError('No camera found on this device.');
+      } else if (msg.includes('NotReadableError') || msg.includes('TrackStartError')) {
+        setCameraError('Camera is in use by another app. Close other apps using the camera and try again.');
+      } else {
+        setCameraError(`Could not start camera: ${msg || 'Unknown error'}. Try using manual input below.`);
+      }
+      setIsScanning(false);
+    }
   };
 
-  const stopScanner = () => {
-    if (scannerRef.current) {
-      scannerRef.current.clear().catch(console.error);
+  const stopScanner = async () => {
+    if (scannerRef.current && isRunningRef.current) {
+      try {
+        await scannerRef.current.stop();
+        scannerRef.current.clear();
+        isRunningRef.current = false;
+      } catch (e) {
+        console.error('Stop error:', e);
+      }
     }
     setIsScanning(false);
   };
 
   const handleScanResult = (scannedText) => {
     setVerified(false);
-    // Try to find asset by tag or any field containing the scanned text
-    const asset = assets.find(a => 
-      a.tag.toLowerCase() === scannedText.toLowerCase() ||
-      a.tag.toLowerCase().includes(scannedText.toLowerCase()) ||
-      scannedText.toLowerCase().includes(a.tag.toLowerCase())
-    );
+    const trimmed = scannedText.trim();
+    
+    // Try to find asset by multiple matching strategies
+    const asset = assets.find(a => {
+      // 1. Exact full tag match (e.g., scanned "AST-001" matches "AST-001")
+      if (a.tag.toLowerCase() === trimmed.toLowerCase()) return true;
+      
+      // 2. Number-to-tag match: scanned "01" or "1" should match "AST-001" 
+      //    Parse the number from the QR code and compare to the number in the tag
+      const scannedNum = parseInt(trimmed, 10);
+      const tagMatch = a.tag.match(/(\d+)$/); // get trailing number from tag like "001" from "AST-001"
+      if (!isNaN(scannedNum) && tagMatch) {
+        const tagNum = parseInt(tagMatch[1], 10);
+        if (scannedNum === tagNum) return true;
+      }
+
+      // 3. Serial number match
+      if (a.serial_number && a.serial_number.toLowerCase() === trimmed.toLowerCase()) return true;
+
+      return false;
+    });
 
     if (asset) {
       setScanResult({ found: true, asset });
     } else {
-      setScanResult({ found: false, scannedText });
+      setScanResult({ found: false, scannedText: trimmed });
     }
   };
 
@@ -1177,7 +1233,7 @@ const ScannerView = ({ assets, onVerify, user }) => {
           </div>
         ) : (
           <div>
-            <div id="qr-reader" className="w-full"></div>
+            <div id="qr-reader" className="w-full" style={{ minHeight: '300px' }}></div>
             <div className="p-4 text-center">
               <button
                 onClick={stopScanner}
@@ -1190,6 +1246,23 @@ const ScannerView = ({ assets, onVerify, user }) => {
         )}
       </div>
 
+      {/* Camera Error */}
+      {cameraError && (
+        <div className="bg-red-50 border border-red-300 rounded-xl p-4 mb-4 flex items-start gap-3">
+          <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
+          <div>
+            <p className="text-sm font-medium text-red-800">Camera Error</p>
+            <p className="text-sm text-red-600 mt-1">{cameraError}</p>
+            <button
+              onClick={() => { setCameraError(''); startScanner(); }}
+              className="mt-2 text-sm text-red-700 underline hover:text-red-900"
+            >
+              Try Again
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Manual Input */}
       <div className="bg-white rounded-xl p-4 shadow-sm mb-4">
         <p className="text-sm text-gray-500 mb-2 text-center">Or enter manually:</p>
@@ -1198,7 +1271,7 @@ const ScannerView = ({ assets, onVerify, user }) => {
             type="text"
             value={manualInput}
             onChange={(e) => setManualInput(e.target.value)}
-            placeholder="Enter asset tag (e.g., AST-001)"
+            placeholder="Enter tag (AST-001) or number (01)"
             className="flex-1 px-4 py-3 border rounded-lg text-center font-mono"
             onKeyDown={(e) => e.key === 'Enter' && handleManualSearch()}
           />
